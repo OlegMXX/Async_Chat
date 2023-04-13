@@ -126,9 +126,11 @@ class Server(threading.Thread, metaclass=ServerMaker):
                 self.names[message[CHAT_USER][ACCOUNT_NAME]] = client
                 send_message(client, {RESPONSE: 200})
                 client_ip = client.getpeername()[0]
-                self.database.user_login(message[CHAT_USER][ACCOUNT_NAME],
-                                         client_ip)
-                print(f"Зарегистрирован пользователь {client}")
+                try:
+                    self.database.user_login(message[CHAT_USER][ACCOUNT_NAME], client_ip)
+                    print(f"В базе данных зарегистрирован пользователь {client}")
+                except:
+                    print(f'Пользователь {client} уже зарегестрирован в базе данных')
                 with conflag_lock:
                     new_connection = True
             # Пользователь зарегестрирован
@@ -159,7 +161,7 @@ class Server(threading.Thread, metaclass=ServerMaker):
             response = {RESPONSE: 202,
                         ALERT: self.database.get_contacts(message[CHAT_USER])}
             send_message(client, response)
-        # Запрос добавления контакта (добавить в databese функцию add_contact)
+        # Запрос добавления контакта
         elif ACTION in message and message[ACTION] == ADD_CONTACT and CHAT_USER in message and \
                 message[TARGET_USER] in message:
             response = {RESPONSE: 200}
