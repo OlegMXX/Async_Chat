@@ -129,7 +129,8 @@ class Server(threading.Thread, metaclass=ServerMaker):
                 try:
                     self.database.user_login(message[CHAT_USER][ACCOUNT_NAME], client_ip)
                     print(f"В базе данных зарегистрирован пользователь {client}")
-                except:
+                except Exception as err:
+                    print(err)
                     print(f'Пользователь {client} уже зарегестрирован в базе данных')
                 with conflag_lock:
                     new_connection = True
@@ -155,25 +156,28 @@ class Server(threading.Thread, metaclass=ServerMaker):
                 new_connection = True
             return
         # Блок обработки запросов, савязанных со списком контактов.
-        # Запрос списка контактов (добавить в databese функцию get_contact)
+        # Запрос списка контактов
         elif ACTION in message and message[ACTION] == GET_CONTACTS and CHAT_USER in message and self.names[
             message[CHAT_USER]] == client:
             response = {RESPONSE: 202,
                         ALERT: self.database.get_contacts(message[CHAT_USER])}
             send_message(client, response)
         # Запрос добавления контакта
-        elif ACTION in message and message[ACTION] == ADD_CONTACT and CHAT_USER in message and \
-                message[TARGET_USER] in message:
+        elif ACTION in message and message[ACTION] == ADD_CONTACT and CHAT_USER in message and message[TARGET_USER]:
             response = {RESPONSE: 200}
-            #print("i'm here!")
             self.database.add_contact(message[CHAT_USER], message[TARGET_USER])
             self.message = send_message(client, response)
-        # Запрос удаления контакта (добавить в databese функцию del_contact)
-        elif ACTION in message and message[ACTION] == DEL_CONTACT and CHAT_USER in message and self.names[
-            message[CHAT_USER]] == client and message[TARGET_USER] in message:
-            response = {RESPONSE: 200}
-            self.database.del_contact(message[CHAT_USER], message[TARGET_USER])
-            send_message(client, response)
+        # Запрос удаления контакта
+        elif ACTION in message and message[ACTION] == DEL_CONTACT and CHAT_USER in message and self.names[message[
+            CHAT_USER]] == client and TARGET_USER in message:
+            response = {RESPONSE: 200, ALERT: f"Пользователь {message[TARGET_USER]} удален из списка контактов"}
+
+            try:
+                self.database.del_contact(message[CHAT_USER], message[TARGET_USER])
+                send_message(client, response)
+            except:
+                print("Не удалось удалить пользователя")
+
 
         # Иначе отдаём Bad request
         else:
