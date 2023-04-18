@@ -3,6 +3,7 @@ ACTION = 'action'
 TIME = 'time'
 CHAT_USER = 'user'
 ACCOUNT_NAME = 'account_name'
+PASSWORD = 'password'
 SENDER = 'from'
 DESTINATION = 'to'
 
@@ -21,3 +22,4 @@ ALERT = 'alert'
 TARGET_USER = 'target_user'
 LIST_INFO = 'list_info'
 USERS_REQUEST = 'users_request'
+

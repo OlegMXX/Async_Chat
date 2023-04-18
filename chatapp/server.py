@@ -8,6 +8,8 @@ import select
 import time
 import threading
 import configparser
+import hashlib
+import binascii
 from os.path import join, dirname
 from dotenv import load_dotenv
 from common.common_functions import get_message, send_message
@@ -139,21 +141,30 @@ class Server(threading.Thread, metaclass=ServerMaker):
         SERVER_LOGGER.debug(f'Получено сообщение от клиента: {message}')
 
         # Для сообщение о присутствии.
-        if ACTION in message and message[ACTION] == PRESENCE and TIME in message and CHAT_USER in message:
-            # Пользователь не зарегестрирован
+        if ACTION in message and message[
+            ACTION] == PRESENCE and TIME in message and CHAT_USER in message and PASSWORD in message:
+            # Пользователь не зарегестрирован в текущей сессии.
             if message[CHAT_USER][ACCOUNT_NAME] not in self.names.keys():
+                print("Получил незарегистрированного пользователя")
                 self.names[message[CHAT_USER][ACCOUNT_NAME]] = client
                 send_message(client, {RESPONSE: 200})
                 client_ip, client_port = client.getpeername()
+                print("Дошел до строки 149")
+                password = message[PASSWORD]
+                salt = message[CHAT_USER][ACCOUNT_NAME]
+                password_hash = binascii.hexlify(
+                    hashlib.pbkdf2_hmac('sha256', bytes(password, 'utf-8'), bytes(salt, 'utf-8'), 100000))
+
                 try:
-                    self.database.user_login(message[CHAT_USER][ACCOUNT_NAME], client_ip, client_port)
+                    self.database.user_login(message[CHAT_USER][ACCOUNT_NAME], client_ip, client_port, password_hash)
                     print(f"В базе данных зарегистрирован пользователь {client}")
                 except Exception as err:
                     print(err)
                     print(f'Пользователь {client} уже зарегестрирован в базе данных')
                 with conflag_lock:
                     new_connection = True
-            # Пользователь зарегестрирован
+
+            # Пользователь зарегестрирован в текущей сессии
             else:
                 response = {RESPONSE: 400, ERROR: None}
                 response[ERROR] = 'Это имя уже занято'
@@ -220,6 +231,8 @@ class Server(threading.Thread, metaclass=ServerMaker):
             response[ERROR] = 'Запрос некорректен.'
             send_message(client, response)
             return
+
+
 
 
 def main():

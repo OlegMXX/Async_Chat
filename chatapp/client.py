@@ -214,13 +214,14 @@ class ClientReader(threading.Thread, metaclass=ClientMaker):
 
 # Функция генерирует запрос о присутствии клиента
 @log
-def create_presence(account_name):
+def create_presence(account_name, password):
     out = {
         ACTION: PRESENCE,
         TIME: time.time(),
         CHAT_USER: {
             ACCOUNT_NAME: account_name
-        }
+        },
+        PASSWORD: password
     }
     CLIENT_LOGGER.debug(f'Сформировано {PRESENCE} сообщение для пользователя {account_name}')
     return out
@@ -246,10 +247,12 @@ def arg_parser():
     parser.add_argument('addr', default=os.environ.get("DEFAULT_IP_ADDRESS"), nargs='?')
     parser.add_argument('port', default=os.environ.get("DEFAULT_PORT"), type=int, nargs='?')
     parser.add_argument('-n', '--name', default=None, nargs='?')
+    parser.add_argument('-p', '--password', default=None, nargs='?')
     namespace = parser.parse_args(sys.argv[1:])
     server_address = namespace.addr
     server_port = namespace.port
     client_name = namespace.name
+    password = namespace.password
 
     # проверим подходящий номер порта
     if not 1023 < server_port < 65536:
@@ -257,7 +260,7 @@ def arg_parser():
             f'Попытка запуска клиента с неподходящим номером порта: {server_port}. Допустимы адреса с 1024 до 65535. Клиент завершается.')
         exit(1)
 
-    return server_address, server_port, client_name
+    return server_address, server_port, client_name, password
 
 # Функция запрос контакт листа
 def contacts_list_request(sock, name):
@@ -353,13 +356,16 @@ def main():
     print('Консольный месседжер. Клиентский модуль.')
 
     # Загружаем параметы коммандной строки
-    server_address, server_port, client_name = arg_parser()
+    server_address, server_port, client_name, password = arg_parser()
 
     # Если имя пользователя не было задано, необходимо запросить пользователя.
     if not client_name:
         client_name = input('Введите имя пользователя: ')
     else:
         print(f'Клиентский модуль запущен с именем: {client_name}')
+
+    if not password:
+        password = input('Введите пароль: ')
 
     CLIENT_LOGGER.info(
         f'Запущен клиент с парамертами: адрес сервера: {server_address} , порт: {server_port}, имя пользователя: {client_name}')
@@ -372,7 +378,7 @@ def main():
         transport.settimeout(1)
 
         transport.connect((server_address, server_port))
-        send_message(transport, create_presence(client_name))
+        send_message(transport, create_presence(client_name, password))
         answer = process_response_ans(get_message(transport))
         CLIENT_LOGGER.info(f'Установлено соединение с сервером. Ответ сервера: {answer}')
         print(f'Установлено соединение с сервером.')

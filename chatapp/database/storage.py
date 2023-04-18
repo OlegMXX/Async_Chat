@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import Table, create_engine, MetaData, Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Table, create_engine, MetaData, Column, Integer, String, ForeignKey, DateTime, Text
 from sqlalchemy.orm import sessionmaker, mapper
 from chatapp.common.jim_variables import *
 
@@ -9,10 +9,11 @@ from chatapp.common.jim_variables import *
 class ServerStorage:
     # Все пользователи
     class AllUsers:
-        def __init__(self, username):
+        def __init__(self, username, password_hash):
             self.name = username
             self.last_login = datetime.datetime.now()
             self.id = None
+            self.password_hash = password_hash
 
     # Активные пользователи. Можно брать из списка внутри сервера, но так более унифицировано
     class ActiveUsers:
@@ -56,7 +57,8 @@ class ServerStorage:
         users_table = Table('Users', self.metadata,
                             Column('id', Integer, primary_key=True),
                             Column('name', String(50), unique=True),
-                            Column('last_login', DateTime)
+                            Column('last_login', DateTime),
+                            Column('password_hash', Text)
                             )
 
         # Таблица активных пользователей
@@ -110,17 +112,22 @@ class ServerStorage:
         self.session.commit()
 
     # Регистрация входа пользователя.
-    def user_login(self, username, ip_address, port):
+    def user_login(self, username, ip_address, port, password_hash):
         # Есть ли у нас такой пользователь
         result = self.session.query(self.AllUsers).filter_by(name=username)
 
         # Если есть, добавляем время последнего входа
         if result.count():
             user = result.first()
-            user.last_login = datetime.datetime.now()
+            # сравниваем пароли
+            if user.password_hash == password_hash:
+                print(f"пароли {username} совпадают")
+                user.last_login = datetime.datetime.now()
+            else:
+                print(f"пароли {username} не совпадают")
         # Если нет, то создаздаём нового пользователя
         else:
-            user = self.AllUsers(username)
+            user = self.AllUsers(username, password_hash)
             self.session.add(user)
             # Коммитим, чтобы получить присвоенный ID
             self.session.commit()
