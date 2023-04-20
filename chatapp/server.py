@@ -22,12 +22,15 @@ from common.jim_variables import *
 SERVER_LOGGER = LOGGER
 
 # Оптимизация запросов к БД
-new_connection = False
+NEW_CONNECTION = False
 conflag_lock = threading.Lock()
 
 
-# Дескриптор порта
 class Port:
+    """
+    Класс - дескриптор порта
+    """
+
     def __set__(self, instance, value):
         if not 1023 < int(value) < 65536:
             SERVER_LOGGER.critical(
@@ -40,6 +43,9 @@ class Port:
 
 
 class Server(threading.Thread, metaclass=ServerMaker):
+    """
+    Основновной класс сервера
+    """
     port = Port()
 
     def __init__(self, listen_address, listen_port, database):
@@ -57,7 +63,8 @@ class Server(threading.Thread, metaclass=ServerMaker):
 
     def init_socket(self):
         SERVER_LOGGER.info(
-            f'Запущен сервер, порт для подключений: {self.port} , адрес с которого принимаются подключения: {self.addr}. Если адрес не указан, принимаются соединения с любых адресов.')
+            f'Запущен сервер, порт для подключений: {self.port} , адрес с которого принимаются подключения: \
+            {self.addr}. Если адрес не указан, принимаются соединения с любых адресов.')
 
         # Подготовка сокета
         transport = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -69,6 +76,9 @@ class Server(threading.Thread, metaclass=ServerMaker):
         self.sock.listen(int(os.environ.get("MAX_CONNECTIONS")))
 
     def main_loop(self):
+        """
+        Функция, осуществляющая главный цикл работы сервера
+        """
         self.init_socket()
         # Главный цикл программы.
         while True:
@@ -120,49 +130,62 @@ class Server(threading.Thread, metaclass=ServerMaker):
                     del self.names[message[DESTINATION]]
             self.messages.clear()
 
-    # Обработка сообщений между клиентами. Является фильтром - валидатором операции.
     @log
     def process_message(self, message, listen_socks):
+        '''
+        Функкция обработки сообщений между клиентами. Является фильтром-фалибатором операции.
+        '''
         if message[DESTINATION] in self.names and self.names[message[DESTINATION]] in listen_socks:
             send_message(self.names[message[DESTINATION]], message)
-            SERVER_LOGGER.info(f'Отправлено сообщение пользователю {message[DESTINATION]} '
-                               f'от пользователя {message[SENDER]}.')
-        elif message[DESTINATION] in self.names and self.names[message[DESTINATION]] not in listen_socks:
+            SERVER_LOGGER.info(f'Отправлено сообщение пользователю {message[DESTINATION]}\
+            от пользователя {message[SENDER]}.')
+        if message[DESTINATION] in self.names and self.names[message[DESTINATION]] not in listen_socks:
             raise ConnectionError
         else:
             SERVER_LOGGER.error(
                 f'Пользователь {message[DESTINATION]} не зарегистрирован на сервере, '
                 f'отправка сообщения невозможна.')
 
-    # Обработка сообщейний от клиентов, проверяет корректность.
     @log
     def process_client_message(self, message, client):
-        global new_connection
+        '''
+        Обработка сообщейний от клиентов. Разбирает действие (ACTION),
+        проверяет полноценность предоставленных данных
+        и запускает соответствующие тому или иному действию функции.
+        '''
+
+        global NEW_CONNECTION
         SERVER_LOGGER.debug(f'Получено сообщение от клиента: {message}')
 
-        # Для сообщение о присутствии.
+        # Для сообщение о присутствии и проверки пароля
         if ACTION in message and message[
             ACTION] == PRESENCE and TIME in message and CHAT_USER in message and PASSWORD in message:
             # Пользователь не зарегестрирован в текущей сессии.
             if message[CHAT_USER][ACCOUNT_NAME] not in self.names.keys():
-                print("Получил незарегистрированного пользователя")
                 self.names[message[CHAT_USER][ACCOUNT_NAME]] = client
                 send_message(client, {RESPONSE: 200})
                 client_ip, client_port = client.getpeername()
-                print("Дошел до строки 149")
                 password = message[PASSWORD]
                 salt = message[CHAT_USER][ACCOUNT_NAME]
                 password_hash = binascii.hexlify(
                     hashlib.pbkdf2_hmac('sha256', bytes(password, 'utf-8'), bytes(salt, 'utf-8'), 100000))
 
                 try:
-                    self.database.user_login(message[CHAT_USER][ACCOUNT_NAME], client_ip, client_port, password_hash)
-                    print(f"В базе данных зарегистрирован пользователь {client}")
+                    if self.database.user_login(message[CHAT_USER][ACCOUNT_NAME], client_ip, client_port,
+                                                password_hash):
+                        response = {RESPONSE: 400, ERROR: 'Неверный пароль! Вы будете отключены.'}
+                        send_message(client, response)
+                        self.clients.remove(client)
+                        client.close()
+                        SERVER_LOGGER.error(
+                            f'Клиент {message[CHAT_USER][ACCOUNT_NAME]} неправильно ввел пароль и был отключен.')
+                    else:
+                        SERVER_LOGGER.info(f"В базе данных зарегистрирован пользователь {client}")
                 except Exception as err:
                     print(err)
                     print(f'Пользователь {client} уже зарегестрирован в базе данных')
                 with conflag_lock:
-                    new_connection = True
+                    NEW_CONNECTION = True
 
             # Пользователь зарегестрирован в текущей сессии
             else:
@@ -173,15 +196,15 @@ class Server(threading.Thread, metaclass=ServerMaker):
                 client.close()
             return
         # Для сообщений с содержимым для другого пользователя
-        elif ACTION in message and message[
-            ACTION] == MESSAGE and DESTINATION in message and TIME in message and SENDER in message and MESSAGE_TEXT in message and \
-                self.names[message[SENDER]] == client:
+        if ACTION in message and message[
+            ACTION] == MESSAGE and DESTINATION in message and TIME in message and SENDER in message and \
+                MESSAGE_TEXT in message and self.names[message[SENDER]] == client:
             self.messages.append(message)
             # Отправляем в БД информацию для статистики передачи сообщений
             self.database.process_message(message[SENDER], message[DESTINATION])
             return
         # Если клиент выходит
-        elif ACTION in message and message[ACTION] == EXIT and ACCOUNT_NAME in message and self.names[
+        if ACTION in message and message[ACTION] == EXIT and ACCOUNT_NAME in message and self.names[
             message[ACCOUNT_NAME]] == client:
             # Передаем в БД выход пользователя, для удаления из списка активных пользователей.
             self.database.user_logout(message[ACCOUNT_NAME])
@@ -190,17 +213,17 @@ class Server(threading.Thread, metaclass=ServerMaker):
             self.names[message[ACCOUNT_NAME]].close()
             del self.names[message[ACCOUNT_NAME]]
             with conflag_lock:
-                new_connection = True
+                NEW_CONNECTION = True
             return
         # Блок обработки запросов, савязанных со списком контактов.
         # Запрос списка контактов
-        elif ACTION in message and message[ACTION] == GET_CONTACTS and CHAT_USER in message and self.names[
+        if ACTION in message and message[ACTION] == GET_CONTACTS and CHAT_USER in message and self.names[
             message[CHAT_USER]] == client:
             response = {RESPONSE: 202,
                         LIST_INFO: self.database.get_contacts(message[CHAT_USER])}
             send_message(client, response)
         # Запрос добавления контакта
-        elif ACTION in message and message[
+        if ACTION in message and message[
             ACTION] == ADD_CONTACT and ACCOUNT_NAME in message and CHAT_USER in message and self.names[
             message[CHAT_USER]] == client:
             response = {RESPONSE: 200}
@@ -209,7 +232,7 @@ class Server(threading.Thread, metaclass=ServerMaker):
             self.message = send_message(client, response)
 
         # Запрос удаления контакта
-        elif ACTION in message and message[
+        if ACTION in message and message[
             ACTION] == DEL_CONTACT and ACCOUNT_NAME in message and CHAT_USER in message and self.names[
             message[CHAT_USER]] == client:
             response = {RESPONSE: 200}
@@ -218,7 +241,7 @@ class Server(threading.Thread, metaclass=ServerMaker):
             send_message(client, response)
 
         # Если это запрос известных пользователей
-        elif ACTION in message and message[ACTION] == USERS_REQUEST and ACCOUNT_NAME in message \
+        if ACTION in message and message[ACTION] == USERS_REQUEST and ACCOUNT_NAME in message \
                 and self.names[message[ACCOUNT_NAME]] == client:
             response = {RESPONSE: 202}
             response[LIST_INFO] = [user[0]
@@ -233,9 +256,10 @@ class Server(threading.Thread, metaclass=ServerMaker):
             return
 
 
-
-
 def main():
+    """
+    Функция запуска приложения
+    """
     dotenv_path = join(dirname(__file__), '.env')
     load_dotenv(dotenv_path)
 

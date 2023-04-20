@@ -1,6 +1,6 @@
 from __main__ import __file__ as where_am_i
-import log.client_log_config as of_client
-import log.server_log_config as of_server
+import chatapp.log.client_log_config as of_client
+import chatapp.log.server_log_config as of_server
 import inspect
 
 if where_am_i.endswith('server.py'):
@@ -10,6 +10,9 @@ if where_am_i.endswith('client.py'):
 
 
 def log(function):
+    """
+    Декоратор, позволяющий логировать вызов функций
+    """
     def wrap(*args, **kwargs):
         func_var = function(*args, *kwargs)
         caller_name = inspect.currentframe().f_back.f_code.co_name
